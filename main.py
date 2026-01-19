@@ -8,7 +8,6 @@ def clean_environment():
     """
     Clean local warehouse and metastore to ensure fresh execution.
     """
-    # Removido "metastore_db" e "derby.log" da lista para manter o catálogo vivo
     paths_to_clean = ["data/spark-warehouse"]
 
     for p in paths_to_clean:
@@ -56,15 +55,15 @@ if __name__ == "__main__":
         print("=" * 50)
 
         # Show physical files
-        print("\n📁 Physical files created:")
+        print("\n Physical files created:")
         import glob
 
         parquet_files = glob.glob("data/warehouse/**/*.parquet", recursive=True)
         for file in parquet_files:
-            print(f"  ✓ {file}")
+            print(f" {file}")
 
         if not parquet_files:
-            print("  ⚠️ No Parquet files found!")
+            print(" No Parquet files found!")
 
     finally:
         pipeline.spark.stop()

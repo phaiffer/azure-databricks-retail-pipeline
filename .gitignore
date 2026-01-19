@@ -5,6 +5,7 @@ __pycache__/
 
 derby.log
 data/
+metastore_db/
 
 # Virtual Environment
 .venv/

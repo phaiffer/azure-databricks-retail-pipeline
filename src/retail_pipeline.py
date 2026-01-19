@@ -22,18 +22,17 @@ class RetailDataPipeline:
         # Create ALL necessary directories
         self._create_directories()
 
-        # MySQL Configuration (Update with your credentials)
-        self.mysql_url = "jdbc:mysql://localhost:3306/retail_db"
+        # MySQL Configuration
         self.mysql_properties = {
-            "user": "your_username",
-            "password": "your_password",
+            "user": "root",  # Your MySQL username
+            "password": "senha_root",  # Your password
             "driver": "com.mysql.cj.jdbc.Driver"
         }
 
         # Configure Spark with EXPLICIT paths
         self.spark = self._create_spark_session()
 
-        # Initialize schemas
+        # Initialize schemas (Spark Lakehouse)
         self._initialize_schemas()
 
     def _create_directories(self):
@@ -53,7 +52,7 @@ class RetailDataPipeline:
     def _create_spark_session(self):
         """Create Spark session with proper Hive and JDBC configuration."""
         metastore_path = os.path.join(self.abs_base_path, "metastore_db")
-    
+
         return SparkSession.builder \
             .appName("RetailPipeline") \
             .master("local[*]") \
@@ -64,30 +63,38 @@ class RetailDataPipeline:
             .enableHiveSupport() \
             .getOrCreate()
 
-    def _save_to_mysql(self, df, table_name):
-        """Export a DataFrame to MySQL database."""
-        print(f"-> Exporting {table_name} to MySQL...")
+    def _save_to_mysql(self, df, db_name, table_name):
+        """
+        Export a DataFrame to a specific MySQL database (Medallion Architecture).
+        Dynamically builds the connection URL to support multiple databases.
+        """
+        print(f"-> Exporting {table_name} to MySQL database '{db_name}'...")
+
+        # Dynamic URL construction for Medallion Architecture
+        # This allows separation: bronze_retail, silver_retail, gold_retail
+        jdbc_url = f"jdbc:mysql://localhost:3306/{db_name}?createDatabaseIfNotExist=true"
+
         try:
             df.write.jdbc(
-                url=self.mysql_url,
+                url=jdbc_url,
                 table=table_name,
                 mode="overwrite",
                 properties=self.mysql_properties
             )
-            print(f"✓ Table {table_name} successfully updated in MySQL.")
+            print(f"✓ Table {table_name} successfully updated in {db_name}.")
         except Exception as e:
             print(f"⚠️ Error exporting to MySQL: {e}")
             print("Tip: Ensure the MySQL JDBC driver is available and credentials are correct.")
 
     def _initialize_schemas(self):
-        """Create databases if they don't exist."""
+        """Create databases in Spark Metastore if they don't exist."""
         try:
-            # Create databases
+            # Create databases in the Lakehouse (Spark)
             self.spark.sql("CREATE DATABASE IF NOT EXISTS bronze_retail")
             self.spark.sql("CREATE DATABASE IF NOT EXISTS silver_retail")
             self.spark.sql("CREATE DATABASE IF NOT EXISTS gold_retail")
 
-            print("\n✓ Databases created:")
+            print("\n✓ Spark Lakehouse Databases created:")
             self.spark.sql("SHOW DATABASES").show(truncate=False)
 
         except Exception as e:
@@ -110,7 +117,7 @@ class RetailDataPipeline:
         # Add ingestion timestamp
         bronze_df = raw_df.withColumn("ingestion_timestamp", current_timestamp())
 
-        # Save to bronze_retail database
+        # Save to bronze_retail database (Spark Lakehouse)
         bronze_df.write \
             .mode("overwrite") \
             .format("parquet") \
@@ -123,6 +130,9 @@ class RetailDataPipeline:
 
         count = bronze_df.count()
         print(f"✓ Bronze layer: {count:,} records saved")
+
+        # --- EXPORT TO MYSQL (Bronze Database) ---
+        self._save_to_mysql(bronze_df, "bronze_retail", "sales_transactions")
 
         return bronze_df
 
@@ -160,7 +170,7 @@ class RetailDataPipeline:
             .filter(col("row_num") == 1) \
             .drop("row_num")
 
-        # Save to silver_retail database
+        # Save to silver_retail database (Spark Lakehouse)
         dedup_df.write \
             .mode("overwrite") \
             .format("parquet") \
@@ -173,6 +183,10 @@ class RetailDataPipeline:
 
         count = dedup_df.count()
         print(f"✓ Silver layer: {count:,} cleaned records")
+
+        # --- EXPORT TO MYSQL (Silver Database) ---
+        self._save_to_mysql(dedup_df, "silver_retail", "sales_clean")
+
         return dedup_df
 
     def process_gold(self):
@@ -205,7 +219,7 @@ class RetailDataPipeline:
             .agg(_sum("total_amount").alias("revenue")) \
             .orderBy(desc("revenue"))
 
-        # Save to gold_retail database
+        # Save to gold_retail database (Spark Lakehouse)
         kpi_df.write \
             .mode("overwrite") \
             .format("parquet") \
@@ -216,10 +230,10 @@ class RetailDataPipeline:
             .mode("overwrite") \
             .parquet(f"{self.abs_base_path}/warehouse/gold/category_performance")
 
-        # Export to MySQL for Dashboarding
-        self._save_to_mysql(kpi_df, "category_performance")
-
         print(f" Gold layer: {kpi_df.count():,} aggregated records")
+
+        # --- EXPORT TO MYSQL (Gold Database) ---
+        self._save_to_mysql(kpi_df, "gold_retail", "category_performance")
 
     def verify_data(self):
         """Verify data is accessible in all layers."""
@@ -240,39 +254,6 @@ class RetailDataPipeline:
                 print(f"✓ {db}.{table}: {result:,} records")
             except Exception as e:
                 print(f"✗ {db}.{table}: ERROR - {e}")
-
-    def run(self):
-        """Execute the complete pipeline."""
-        self.process_bronze()
-        self.process_silver()
-        self.process_gold()
-        self.verify_data()
-        print("\n Pipeline Completed Successfully!")
-
-    def export_to_mysql(self, df, database_name, table_name):
-        """
-        Helper method to export DataFrames to specific Medallion databases in MySQL.
-        """
-        # Configurações de conexão (Idealmente viriam de variáveis de ambiente)
-        jdbc_url = f"jdbc:mysql://localhost:3306/{database_name}"
-        
-        connection_properties = {
-            "user": "root",      # <--- COLOQUE SEU USUÁRIO AQUI
-            "password": "W!ll!@n55361316",    # <--- COLOQUE SUA SENHA AQUI
-            "driver": "com.mysql.cj.jdbc.Driver"
-        }
-
-        try:
-            print(f"Sending data to {database_name}.{table_name}...")
-            df.write.jdbc(
-                url=jdbc_url,
-                table=table_name,
-                mode="overwrite",
-                properties=connection_properties
-            )
-            print(f" Success: {table_name} exported to {database_name}")
-        except Exception as e:
-            print(f" Failed to export to {database_name}: {e}")
 
     def run(self):
         """Execute the complete pipeline."""
