@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+derby.log
+data/
+
 # Virtual Environment
 .venv/
 venv/

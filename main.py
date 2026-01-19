@@ -8,7 +8,8 @@ def clean_environment():
     """
     Clean local warehouse and metastore to ensure fresh execution.
     """
-    paths_to_clean = ["data/spark-warehouse", "metastore_db", "derby.log"]
+    # Removido "metastore_db" e "derby.log" da lista para manter o catálogo vivo
+    paths_to_clean = ["data/spark-warehouse"]
 
     for p in paths_to_clean:
         if os.path.exists(p):

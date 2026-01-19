@@ -1,7 +1,13 @@
 import os
 import glob
+from importlib import metadata
+
+from pyspark.shell import spark
 from pyspark.sql import SparkSession
 
+spark.sql("SHOW DATABASES").show()
+spark.sql("USE bronze_retail")
+spark.sql("SHOW TABLES").show()
 
 def debug_storage():
     """
@@ -92,18 +98,10 @@ def check_requirements():
 
     for package in required:
         try:
-            if package == 'pyspark':
-                import pyspark
-                version = pyspark.__version__
-            elif package == 'requests':
-                import requests
-                version = requests.__version__
-            elif package == 'tenacity':
-                import tenacity
-                version = tenacity.__version__
-
+            # Use importlib.metadata to get version info reliably
+            version = metadata.version(package)
             print(f"✓ {package}: {version}")
-        except ImportError:
+        except metadata.PackageNotFoundError:
             print(f"✗ {package}: NOT INSTALLED")
 
 

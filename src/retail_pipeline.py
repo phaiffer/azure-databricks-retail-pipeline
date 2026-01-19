@@ -11,8 +11,9 @@ class RetailDataPipeline:
     """
 
     def __init__(self, base_path="data"):
-        # Network fix for Ubuntu
+        # Network fix for Ubuntu - ensuring these are set before session creation
         os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
+        os.environ["JAVA_OPTS"] = "-Djava.net.preferIPv4Stack=true"
 
         # Ensure base directory exists
         self.base_path = base_path
@@ -20,6 +21,14 @@ class RetailDataPipeline:
 
         # Create ALL necessary directories
         self._create_directories()
+
+        # MySQL Configuration (Update with your credentials)
+        self.mysql_url = "jdbc:mysql://localhost:3306/retail_db"
+        self.mysql_properties = {
+            "user": "your_username",
+            "password": "your_password",
+            "driver": "com.mysql.cj.jdbc.Driver"
+        }
 
         # Configure Spark with EXPLICIT paths
         self.spark = self._create_spark_session()
@@ -42,15 +51,33 @@ class RetailDataPipeline:
             print(f"✓ Directory: {dir_path}")
 
     def _create_spark_session(self):
-        """Create Spark session with proper Hive configuration."""
+        """Create Spark session with proper Hive and JDBC configuration."""
+        metastore_path = os.path.join(self.abs_base_path, "metastore_db")
+    
         return SparkSession.builder \
             .appName("RetailPipeline") \
             .master("local[*]") \
             .config("spark.sql.warehouse.dir", f"file://{self.abs_base_path}/warehouse") \
-            .config("spark.driver.bindAddress", "127.0.0.1") \
-            .config("spark.driver.host", "127.0.0.1") \
+            .config("javax.jdo.option.ConnectionURL", f"jdbc:derby:;databaseName={metastore_path};create=true") \
+            .config("spark.hadoop.fs.defaultFS", "file:///") \
+            .config("spark.jars.packages", "com.mysql:mysql-connector-j:8.3.0") \
             .enableHiveSupport() \
             .getOrCreate()
+
+    def _save_to_mysql(self, df, table_name):
+        """Export a DataFrame to MySQL database."""
+        print(f"-> Exporting {table_name} to MySQL...")
+        try:
+            df.write.jdbc(
+                url=self.mysql_url,
+                table=table_name,
+                mode="overwrite",
+                properties=self.mysql_properties
+            )
+            print(f"✓ Table {table_name} successfully updated in MySQL.")
+        except Exception as e:
+            print(f"⚠️ Error exporting to MySQL: {e}")
+            print("Tip: Ensure the MySQL JDBC driver is available and credentials are correct.")
 
     def _initialize_schemas(self):
         """Create databases if they don't exist."""
@@ -189,6 +216,9 @@ class RetailDataPipeline:
             .mode("overwrite") \
             .parquet(f"{self.abs_base_path}/warehouse/gold/category_performance")
 
+        # Export to MySQL for Dashboarding
+        self._save_to_mysql(kpi_df, "category_performance")
+
         print(f" Gold layer: {kpi_df.count():,} aggregated records")
 
     def verify_data(self):
@@ -210,6 +240,39 @@ class RetailDataPipeline:
                 print(f"✓ {db}.{table}: {result:,} records")
             except Exception as e:
                 print(f"✗ {db}.{table}: ERROR - {e}")
+
+    def run(self):
+        """Execute the complete pipeline."""
+        self.process_bronze()
+        self.process_silver()
+        self.process_gold()
+        self.verify_data()
+        print("\n Pipeline Completed Successfully!")
+
+    def export_to_mysql(self, df, database_name, table_name):
+        """
+        Helper method to export DataFrames to specific Medallion databases in MySQL.
+        """
+        # Configurações de conexão (Idealmente viriam de variáveis de ambiente)
+        jdbc_url = f"jdbc:mysql://localhost:3306/{database_name}"
+        
+        connection_properties = {
+            "user": "root",      # <--- COLOQUE SEU USUÁRIO AQUI
+            "password": "W!ll!@n55361316",    # <--- COLOQUE SUA SENHA AQUI
+            "driver": "com.mysql.cj.jdbc.Driver"
+        }
+
+        try:
+            print(f"Sending data to {database_name}.{table_name}...")
+            df.write.jdbc(
+                url=jdbc_url,
+                table=table_name,
+                mode="overwrite",
+                properties=connection_properties
+            )
+            print(f" Success: {table_name} exported to {database_name}")
+        except Exception as e:
+            print(f" Failed to export to {database_name}: {e}")
 
     def run(self):
         """Execute the complete pipeline."""
