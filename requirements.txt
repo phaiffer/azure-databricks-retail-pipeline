@@ -1,0 +1,5 @@
+
+pyspark-stubs
+pyspark>=3.5.0
+requests>=2.31.0
+tenacity>=8.2.0
