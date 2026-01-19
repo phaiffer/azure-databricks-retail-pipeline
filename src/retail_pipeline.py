@@ -25,7 +25,7 @@ class RetailDataPipeline:
         # MySQL Configuration
         self.mysql_properties = {
             "user": "root",  # Your MySQL username
-            "password": "senha_root",  # Your password
+            "password": "Pass_root",  # Your password
             "driver": "com.mysql.cj.jdbc.Driver"
         }
 
@@ -47,7 +47,7 @@ class RetailDataPipeline:
 
         for dir_path in dirs:
             os.makedirs(dir_path, exist_ok=True)
-            print(f"✓ Directory: {dir_path}")
+            print(f"[OK] Directory: {dir_path}")
 
     def _create_spark_session(self):
         """Create Spark session with proper Hive and JDBC configuration."""
@@ -68,7 +68,7 @@ class RetailDataPipeline:
         Export a DataFrame to a specific MySQL database (Medallion Architecture).
         Dynamically builds the connection URL to support multiple databases.
         """
-        print(f"-> Exporting {table_name} to MySQL database '{db_name}'...")
+        print(f"[INFO] Exporting {table_name} to MySQL database '{db_name}'...")
 
         # Dynamic URL construction for Medallion Architecture
         # This allows separation: bronze_retail, silver_retail, gold_retail
@@ -81,9 +81,9 @@ class RetailDataPipeline:
                 mode="overwrite",
                 properties=self.mysql_properties
             )
-            print(f"✓ Table {table_name} successfully updated in {db_name}.")
+            print(f"[OK] Table {table_name} successfully updated in {db_name}.")
         except Exception as e:
-            print(f"⚠️ Error exporting to MySQL: {e}")
+            print(f"[ERROR] Error exporting to MySQL: {e}")
             print("Tip: Ensure the MySQL JDBC driver is available and credentials are correct.")
 
     def _initialize_schemas(self):
@@ -94,11 +94,11 @@ class RetailDataPipeline:
             self.spark.sql("CREATE DATABASE IF NOT EXISTS silver_retail")
             self.spark.sql("CREATE DATABASE IF NOT EXISTS gold_retail")
 
-            print("\n✓ Spark Lakehouse Databases created:")
+            print("\n[OK] Spark Lakehouse Databases created:")
             self.spark.sql("SHOW DATABASES").show(truncate=False)
 
         except Exception as e:
-            print(f"Warning creating schemas: {e}")
+            print(f"[WARNING] creating schemas: {e}")
 
     def process_bronze(self):
         """Load raw data into Bronze layer."""
@@ -129,7 +129,7 @@ class RetailDataPipeline:
             .parquet(f"{self.abs_base_path}/warehouse/bronze/sales_transactions")
 
         count = bronze_df.count()
-        print(f"✓ Bronze layer: {count:,} records saved")
+        print(f"[OK] Bronze layer: {count:,} records saved")
 
         # --- EXPORT TO MYSQL (Bronze Database) ---
         self._save_to_mysql(bronze_df, "bronze_retail", "sales_transactions")
@@ -144,7 +144,7 @@ class RetailDataPipeline:
             # Read from bronze table
             bronze_df = self.spark.table("bronze_retail.sales_transactions")
         except Exception as e:
-            print(f"Error reading bronze table: {e}")
+            print(f"[ERROR] Reading bronze table: {e}")
             return None
 
         # Data cleaning and transformation
@@ -182,7 +182,7 @@ class RetailDataPipeline:
             .parquet(f"{self.abs_base_path}/warehouse/silver/sales_clean")
 
         count = dedup_df.count()
-        print(f"✓ Silver layer: {count:,} cleaned records")
+        print(f"[OK] Silver layer: {count:,} cleaned records")
 
         # --- EXPORT TO MYSQL (Silver Database) ---
         self._save_to_mysql(dedup_df, "silver_retail", "sales_clean")
@@ -196,7 +196,7 @@ class RetailDataPipeline:
         try:
             silver_df = self.spark.table("silver_retail.sales_clean")
         except Exception as e:
-            print(f"Error reading silver table: {e}")
+            print(f"[ERROR] Reading silver table: {e}")
             return
 
         # Load users for enrichment
@@ -230,7 +230,7 @@ class RetailDataPipeline:
             .mode("overwrite") \
             .parquet(f"{self.abs_base_path}/warehouse/gold/category_performance")
 
-        print(f" Gold layer: {kpi_df.count():,} aggregated records")
+        print(f"[OK] Gold layer: {kpi_df.count():,} aggregated records")
 
         # --- EXPORT TO MYSQL (Gold Database) ---
         self._save_to_mysql(kpi_df, "gold_retail", "category_performance")
@@ -251,9 +251,9 @@ class RetailDataPipeline:
             try:
                 query = f"SELECT COUNT(*) as count FROM {db}.{table}"
                 result = self.spark.sql(query).collect()[0]["count"]
-                print(f"✓ {db}.{table}: {result:,} records")
+                print(f"[OK] {db}.{table}: {result:,} records")
             except Exception as e:
-                print(f"✗ {db}.{table}: ERROR - {e}")
+                print(f"[ERROR] {db}.{table}: {e}")
 
     def run(self):
         """Execute the complete pipeline."""
@@ -261,4 +261,4 @@ class RetailDataPipeline:
         self.process_silver()
         self.process_gold()
         self.verify_data()
-        print("\n Pipeline Completed Successfully!")
+        print("\nPipeline Completed Successfully!")
